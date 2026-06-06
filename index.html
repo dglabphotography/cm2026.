@@ -693,6 +693,28 @@ main{max-width:920px;margin:0 auto;padding:1.5rem 1rem;position:relative;z-index
 .response-chip .rc-pts{font-family:'Bebas Neue';font-size:.95rem;float:right;}
 .response-chip.correct{border-color:rgba(34,197,94,.3);background:rgba(34,197,94,.05);}
 .response-chip.wrong{border-color:rgba(239,68,68,.2);}
+.survey-autocomplete{
+  width:100%;
+  background:rgba(4,12,38,.7);
+  backdrop-filter:blur(15px);
+  border:1px solid var(--ice-border);
+  border-top:1px solid var(--ice-border2);
+  border-radius:var(--r2);
+  padding:.7rem 1rem;
+  color:var(--text);
+  font-family:'DM Sans';
+  font-size:.92rem;
+  outline:none;
+  transition:.25s;
+  box-shadow:inset 0 2px 10px rgba(0,0,30,.5),inset 0 1px 0 rgba(140,200,255,.15);
+}
+.survey-autocomplete:focus{
+  border-color:rgba(100,180,255,.7);
+  background:rgba(8,20,60,.8);
+  box-shadow:0 0 0 3px rgba(60,150,255,.2),inset 0 2px 10px rgba(0,0,40,.4);
+}
+.survey-autocomplete::placeholder{color:var(--muted2);}
+.survey-autocomplete:disabled{opacity:.5;cursor:not-allowed;}
 
 
 /* ═══════════ PAGE ADMIN ═══════════ */
@@ -1951,13 +1973,13 @@ const SURVEYS = [
     pts:[5,4,3],
   },
   {
-    id:'top_scorer',type:'select',category:'🥅 Récompenses FIFA',
+    id:'top_scorer',type:'autocomplete',category:'🥅 Récompenses FIFA',
     title:"Soulier d'Or — Meilleur buteur du tournoi",
     desc:'Le joueur avec le plus de buts. Récompense officielle FIFA.',
     options:PLAYERS_LIST,pts:3
   },
   {
-    id:'best_player',type:'select',category:'🥅 Récompenses FIFA',
+    id:'best_player',type:'autocomplete',category:'🥅 Récompenses FIFA',
     title:"Ballon d'Or — Meilleur joueur du tournoi",
     desc:'Récompense officielle FIFA décernée en fin de compétition.',
     options:PLAYERS_LIST,pts:3
@@ -2016,6 +2038,15 @@ function buildSurveyCard(s, locked){
       const st = isCorrect ? 'color:var(--green);border-color:rgba(34,197,94,.4)' : 'border:1px solid var(--border)';
       inputHtml = '<div style="background:var(--s2);'+st+';border-radius:var(--r2);padding:.55rem .85rem;font-size:.88rem;font-weight:600">';
       inputHtml += (val||'\u2014')+(isCorrect?' \u2713 +'+s.pts+' pts':'')+'</div>';
+    } else if(s.type==='autocomplete'){
+      // Champ texte libre avec datalist pour autocomplétion
+      const dlId = 'dl_'+s.id;
+      inputHtml = '<datalist id="'+dlId+'">';
+      for(const o of s.options) inputHtml += '<option value="'+o+'"></option>';
+      inputHtml += '</datalist>';
+      inputHtml += '<input type="text" class="survey-autocomplete" id="sv_'+s.id+'" data-sid="'+s.id+'"';
+      inputHtml += ' list="'+dlId+'" placeholder="Tape un nom de joueur..." autocomplete="off"';
+      inputHtml += ' value="'+val+'" oninput="debounceSaveSurvey(this.dataset.sid)"'+(locked?' disabled':'')+' />';
     } else {
       inputHtml = '<div class="survey-select-wrap"><select class="survey-select" id="sv_'+s.id+'" data-sid="'+s.id+'" onchange="saveSurvey(this.dataset.sid)"'+(locked?' disabled':'')+' >';
       inputHtml += '<option value="">\u2014 Choisir une r\xe9ponse \u2014</option>';
@@ -2098,11 +2129,18 @@ function calcSurveyPts(survey, userAnswer, correctAnswer){
   return userAnswer===correctAnswer ? survey.pts : 0;
 }
 
+const _surveyTimers={};
+function debounceSaveSurvey(surveyId){
+  clearTimeout(_surveyTimers[surveyId]);
+  _surveyTimers[surveyId]=setTimeout(()=>saveSurvey(surveyId),800);
+}
+
 async function saveSurvey(surveyId){
   if(Date.now() >= SURVEY_DEADLINE){ toast('⛔ Sondages fermés !','err'); return; }
   const el=document.getElementById('sv_'+surveyId);
-  if(!el||!el.value) return;
-  const val=el.value;
+  if(!el) return;
+  const val = el.value ? el.value.trim() : '';
+  if(!val) return;
   mySurveyAnswers[surveyId]=val;
   await sbUpsert('cm26_survey_answers',{pseudo:CU.pseudo, survey_id:surveyId, answer:JSON.stringify(val)});
   toast('✓ Réponse enregistrée','ok');
