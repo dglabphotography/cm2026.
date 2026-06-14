@@ -857,92 +857,49 @@ function showPage(id,btn){
 // ═══════════════════════════════════════════════
 // PRONOSTICS
 // ═══════════════════════════════════════════════
-var myPronos={}, globalResults={};
-function fmtKO(utc){
-  if(!utc) return '';
-  return new Date(utc).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Paris'})+' (heure fr)';
+function togglePronos(btn){
+  btn.classList.toggle('open');
+  var collapse=btn.nextElementSibling;
+  collapse.classList.toggle('open');
 }
-async function renderProno(){
-  document.getElementById('prono-content').innerHTML='<div class="loading-page"><span class="spinner"></span> Chargement...</div>';
-  var rows=await sbGet('cm26_pronos','pseudo=eq.'+encodeURIComponent(CU.pseudo));
-  myPronos={};
-  if(rows) rows.forEach(function(r){myPronos[r.match_id]={home:r.home_score,away:r.away_score};});
-  var rrows=await sbGet('cm26_results','');
-  globalResults={};
-  if(rrows) rrows.forEach(function(r){globalResults[r.match_id]={home:r.home_score,away:r.away_score};});
-  var byDate={};
-  MATCHES.forEach(function(m){
-    if(!byDate[m.dateISO]) byDate[m.dateISO]={label:m.dateLabel,phase:m.phase,matches:[]};
-    byDate[m.dateISO].matches.push(m);
-  });
-  var dates=Object.keys(byDate).sort();
-  var html='', lastPhase=null;
-  dates.forEach(function(d){
-    var info=byDate[d];
-    if(info.phase!==lastPhase){
-      html+='<div class="phase-sep"><span class="phase-sep-label">'+PL[info.phase]+'</span><span class="phase-sep-line"></span></div>';
-      lastPhase=info.phase;
-    }
-    html+='<div class="date-hd"><span class="date-badge">'+info.label+'</span></div>';
-    info.matches.forEach(function(m){
-      var p=myPronos[m.id];
+
+function scrollToToday(containerId){
+  setTimeout(function(){
+    var today=new Date().toLocaleDateString('fr-CA',{timeZone:'Europe/Paris'}); // YYYY-MM-DD
+    var container=document.getElementById(containerId);
+    if(!container) return;
+    // Cherche le premier .date-hd dont le badge correspond à aujourd'hui
+    var dateBadges=container.querySelectorAll('.date-hd');
+    var todayISO=today;
+    // On cherche un match dont dateISO === todayISO pour trouver le bon label
+    var todayMatch=MATCHES.find(function(m){return m.dateISO===todayISO;});
+    if(!todayMatch){
+      // Si pas de match aujourd'hui, chercher le prochain à venir
       var now=Date.now();
-      var kickoff=m.kickoffUTC?new Date(m.kickoffUTC).getTime():Infinity;
-      var started=now>=kickoff;
-      var locked=started||!!globalResults[m.id];
-      var saved=p&&p.home!==undefined&&p.home!==null;
-      var fh=FLAGS[m.home]||'', fa=FLAGS[m.away]||'';
-      var hc=TEAM_GROUP[m.home]?'onclick="openTeamModal(\''+m.home+'\')"':'';
-      var ac=TEAM_GROUP[m.away]?'onclick="openTeamModal(\''+m.away+'\')"':'';
-      var ko=fmtKO(m.kickoffUTC);
-      var cls='mc'+(saved?' saved':'')+(locked?' locked':'')+(started&&!globalResults[m.id]?' started':'');
-      html+='<div class="'+cls+'" id="mc-'+m.id+'">';
-      html+='<div class="team"><span class="flag">'+fh+'</span><span class="tn" '+hc+'>'+m.home+'</span></div>';
-      html+='<div class="mc-mid"><div class="mc-time">'+(ko||PL[m.phase])+'</div>';
-      if(locked){
-        html+='<div class="lock-score">'+(saved?p.home+' - '+p.away:'--')+'</div>';
-        html+='<div class="lock-icon">'+(started?'Commence':'Saisi')+'</div>';
-      } else {
-        html+='<div class="si-wrap">';
-        html+='<input type="number" class="si" min="0" max="99" id="ph-'+m.id+'" value="'+(saved?p.home:'')+'" placeholder="-" oninput="autoSave(\''+m.id+'\')">';
-        html+='<span class="sep">:</span>';
-        html+='<input type="number" class="si" min="0" max="99" id="pa-'+m.id+'" value="'+(saved?p.away:'')+'" placeholder="-" oninput="autoSave(\''+m.id+'\')">';
-        html+='</div>';
+      todayMatch=MATCHES.find(function(m){return new Date(m.kickoffUTC).getTime()>now;});
+    }
+    if(!todayMatch) return;
+    var targetLabel=todayMatch.dateLabel;
+    dateBadges.forEach(function(el){
+      if(el.querySelector('.date-badge')&&el.querySelector('.date-badge').textContent===targetLabel){
+        el.scrollIntoView({behavior:'smooth',block:'start'});
       }
-      html+='</div>';
-      html+='<div class="team r"><span class="tn" '+ac+'>'+m.away+'</span><span class="flag">'+fa+'</span></div>';
-      html+='</div>';
     });
-  });
-  var container=document.getElementById('prono-content');
-  container.innerHTML=html;
-  attachReveal(container);
+  }, 350); // Attendre que le rendu soit terminé
 }
-var _timers={};
-function autoSave(mid){clearTimeout(_timers[mid]);_timers[mid]=setTimeout(function(){saveProno(mid);},700);}
-async function saveProno(mid){
-  var hEl=document.getElementById('ph-'+mid), aEl=document.getElementById('pa-'+mid);
-  if(!hEl||!aEl) return;
-  var match=MATCHES.find(function(m){return m.id===mid;});
-  if(match&&match.kickoffUTC&&Date.now()>=new Date(match.kickoffUTC).getTime()){toast('Trop tard, le match a commence !','err');return;}
-  var h=hEl.value, a=aEl.value;
-  if(h===''||a==='') return;
-  myPronos[mid]={home:parseInt(h),away:parseInt(a)};
-  await sbUpsert('cm26_pronos',{pseudo:CU.pseudo,match_id:mid,home_score:parseInt(h),away_score:parseInt(a)});
-  var card=document.getElementById('mc-'+mid);
-  if(card) card.classList.add('saved');
-  toast('Prono sauvegarde','ok');
-  recalcScore();
-}
-async function recalcScore(){
-  var total=0,p3=0,p2=0,p1=0;
-  MATCHES.forEach(function(m){
-    var r=globalResults[m.id], p=myPronos[m.id];
-    if(!r||!p||p.home===null) return;
-    var pts=calcPts(r,p); total+=pts;
-    if(pts===3)p3++;else if(pts===2)p2++;else if(pts===1)p1++;
-  });
-  await sbUpsert('cm26_scores',{pseudo:CU.pseudo,total:total,p3:p3,p2:p2,p1:p1});
+
+function showPage(id,btn){
+  document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
+  document.querySelectorAll('.nb').forEach(function(b){b.classList.remove('active');});
+  document.getElementById('page-'+id).classList.add('active');
+  var b=btn||document.querySelector('[data-page="'+id+'"]');
+  if(b) b.classList.add('active');
+  if(id==='pronostics') renderProno().then(function(){scrollToToday('prono-content');});
+  if(id==='resultats') renderResults().then(function(){scrollToToday('res-content');});
+  if(id==='classement') renderRanking();
+  if(id==='sondages') renderSurveys();
+  if(id==='admin') renderAdmin();
+  if(id==='chat'){renderChat();startChatRefresh();}else{stopChatRefresh();}
 }
 
 // ═══════════════════════════════════════════════
